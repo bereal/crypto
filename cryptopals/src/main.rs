@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+// use std::io::prelude::*;
 use hex::{FromHex};
 use base64;
 use maplit;
@@ -67,25 +68,34 @@ fn freq_distance(s: &String) -> f64 {
         .fold(0., |acc, x| acc+x)
 }
 
-// Attempt to decrypt a single-byte-xor encrypted message
-fn decrypt_xor(cipher: &Vec<u8>) -> Option<(String, f64)> {
-    (0..255).map(|k| xor(cipher, &vec![k]))
-        .map(String::from_utf8)
-        .filter(|s| s.is_ok())
-        .map(|s| s.unwrap())
-        .map(|s| {
-            let dist = freq_distance(&s);
-            (s, dist)
-        })
-        .min_by_key(|(_, d)| OrderedFloat(*d))
+struct XorSolution {
+    key: u8,
+    message: String,
+    score: f64,
 }
 
-fn find_and_decrypt_xor<T: Iterator<Item=String>>(lines: T) -> Option<String> {
-    lines.map(|line| decrypt_xor(&hex::decode(line).unwrap()))
-        .filter(|s| s.is_some())
-        .map(|s| s.unwrap())
-        .min_by_key(|(_, score)| OrderedFloat(*score))
-        .map(|(s, _)| s)
+// Attempt to decrypt a single-byte-xor encrypted message
+fn decrypt_xor(cipher: &Vec<u8>) -> Option<XorSolution> {
+    (0..255).filter_map(|key| {
+        match String::from_utf8(xor(cipher, &vec![key])) {
+            Ok(message) => {
+                let score = freq_distance(&message);
+                Some(XorSolution{ key, message, score })
+            },
+            Err(_) => None,
+        }
+    }).min_by_key(|s| OrderedFloat(s.score))
+}
+
+fn find_and_decrypt_xor<T: Iterator<Item=String>>(lines: T) -> Option<XorSolution> {
+    lines.filter_map(|line| decrypt_xor(&hex::decode(line).unwrap()))
+        .min_by_key(|s| OrderedFloat(s.score))
+}
+
+fn decrypt_vigenere(cipher: &Vec<u8>, key_size: usize) -> Option<String> {
+    let blocks = transpose_blocks(cipher, key_size);
+    let key = blocks.iter().filter_map(decrypt_xor).map(|s| s.key).collect();
+    String::from_utf8(xor(cipher, &key)).ok()
 }
 
 fn humming_distance(v1: &Vec<u8>, v2: &Vec<u8>) -> usize {
@@ -93,6 +103,10 @@ fn humming_distance(v1: &Vec<u8>, v2: &Vec<u8>) -> usize {
         .map(|(&x, &y)| x^y)
         .map(|b| b.count_ones())
         .fold(0 as usize, |a, b| a + (b as usize))
+}
+
+fn guess_key_length(v: &Vec<u8>) -> usize {
+    (2..40).min_by_key(|i| coincidence(v, *i)).unwrap()
 }
 
 fn transpose_blocks(v: &Vec<u8>, size: usize) -> Vec<Vec<u8>> {
@@ -106,10 +120,31 @@ fn transpose_blocks(v: &Vec<u8>, size: usize) -> Vec<Vec<u8>> {
     return blocks;
 }
 
-fn read_file(name: &str) -> impl Iterator<Item=String> {
+fn coincidence(v: &Vec<u8>, size: usize) -> usize {
+    let mut chunks = v.chunks(size);
+    let base = Vec::from(chunks.next().unwrap());
+
+    let mut result = 0;
+
+    loop {
+        match chunks.next() {
+            Some(s) => result += humming_distance(&base, &Vec::from(s)),
+            None => break,
+        }
+    }
+
+    return result;
+}
+
+fn read_file_lines(name: &str) -> impl Iterator<Item=String> {
     BufReader::new(File::open(name).unwrap())
         .lines()
         .filter_map(|line| line.ok())
+}
+
+fn read_file_base64(name: &str) -> Vec<u8> {
+    let content = read_file_lines(name).fold(String::new(), |acc, v| acc + &v);
+    base64::decode(content.as_str()).unwrap()
 }
 
 #[cfg(test)]
@@ -137,15 +172,15 @@ mod tests {
     fn challenge_1_3() {
         let cipher = hex::decode("1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736").unwrap();
         match decrypt_xor(&cipher) {
-            Some((result, _)) => assert_eq!(result, "Cooking MC's like a pound of bacon"),
+            Some(sol) => assert_eq!(sol.message, "Cooking MC's like a pound of bacon"),
             None => assert!(false),
         }
     }
 
     #[test]
     fn challenge_1_4() {
-        let result = find_and_decrypt_xor(read_file("4.txt")).unwrap();
-        assert_eq!(result, "Now that the party is jumping\n");
+        let solution = find_and_decrypt_xor(read_file_lines("4.txt")).unwrap();
+        assert_eq!(solution.message, "Now that the party is jumping\n");
     }
 
     #[test]
@@ -156,6 +191,16 @@ I go crazy when I hear a cymbal".bytes().collect();
         let cipher = xor(&plain, &key);
         assert_eq!(hex::encode(cipher),
             "0b3637272a2b2e63622c2e69692a23693a2a3c6324202d623d63343c2a26226324272765272a282b2f20430a652e2c652a3124333a653e2b2027630c692b20283165286326302e27282f");
+    }
+
+    #[test]
+    fn challenge_1_6() {
+        let data = read_file_base64("6.txt");
+        let key_length = guess_key_length(&data);
+        assert_eq!(key_length, 29);
+
+        let solution = decrypt_vigenere(&data, key_length);
+        assert!(solution.unwrap().starts_with("I'm back and I'm ringin'"));
     }
 
     #[test]
@@ -172,13 +217,6 @@ I go crazy when I hear a cymbal".bytes().collect();
         let as_str: Vec<String> = output.iter().map(|v| v.iter().map(|&c| c as char).collect()).collect();
         assert_eq!(as_str, ["ADGJ", "BEHK", "CFI"]);
     }
-}
-
-fn relative_humming(v: &Vec<u8>, size: usize) -> usize {
-    let mut chunks = v.chunks(size);
-    let c1 = chunks.next().unwrap();
-    let c2 = chunks.next().unwrap();
-    return humming_distance(&Vec::from(c1), &Vec::from(c2));
 }
 
 fn main() {}
