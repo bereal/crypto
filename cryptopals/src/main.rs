@@ -77,13 +77,10 @@ struct XorSolution {
 // Attempt to decrypt a single-byte-xor encrypted message
 fn decrypt_xor(cipher: &Vec<u8>) -> Option<XorSolution> {
     (0..255).filter_map(|key| {
-        match String::from_utf8(xor(cipher, &vec![key])) {
-            Ok(message) => {
-                let score = freq_distance(&message);
-                Some(XorSolution{ key, message, score })
-            },
-            Err(_) => None,
-        }
+        String::from_utf8(xor(cipher, &vec![key])).map(|message| {
+            let score = freq_distance(&message);
+            XorSolution{ key, message, score }
+        }).ok()
     }).min_by_key(|s| OrderedFloat(s.score))
 }
 
