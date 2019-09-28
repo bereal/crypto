@@ -3,6 +3,7 @@
 use hex::{FromHex};
 use base64;
 use maplit;
+use ordered_float::{OrderedFloat};
 use lazy_static::{lazy_static};
 use std::path::{ Path };
 use std::fs::File;
@@ -57,8 +58,8 @@ impl<B: BufRead> Iterator for BufIter<B> {
     }
 }
 
-fn read_file(name: &String) -> BufIter<BufReader<File>> {
-    let path = Path::new(name.as_str());
+fn read_file(name: &str) -> BufIter<BufReader<File>> {
+    let path = Path::new(name);
     let file = match File::open(&path) {
         Err(why) => panic!("couldn't open {}: {}", path.display(), why),
         Ok(file) => file
@@ -93,33 +94,17 @@ fn freq_distance(s: &String) -> f64 {
         .fold(0., |acc, x| acc+x);
 }
 
-fn decrypt_xor(cipher: &Vec<u8>) -> (String, f64) {
-    let mut best: String = "".to_string();
-    let mut best_score: f64 = -1.;
-
-    for v in 0..255 {
-        let attempt = xor(cipher, &vec![v]);
-        match String::from_utf8(attempt) {
-            Ok(s) => {
-                let freq = freq_distance(&s);
-                if best_score < 0. || freq < best_score {
-                    best = s;
-                    best_score = freq;
-                }
-            },
-            Err(_) => {}
-        }
-    }
-
-    return (best, best_score);
-}
-
-fn challenge_1_5() {
-    let text: Vec<u8> = "Burning 'em, if you ain't quick and nimble
-I go crazy when I hear a cymbal".bytes().collect();
-    let key: Vec<u8> = "ICE".bytes().collect();
-    let cipher = xor(&text, &key);
-    println!("{}", hex::encode(cipher));
+// Attempt to decrypt a single-byte-xor encrypted message
+fn decrypt_xor(cipher: &Vec<u8>) -> Option<(String, f64)> {
+    return (0..255).map(|k| xor(cipher, &vec![k]))
+        .map(String::from_utf8)
+        .filter(|s| s.is_ok())
+        .map(|s| s.unwrap())
+        .map(|s| {
+            let dist = freq_distance(&s);
+            return (s, dist);
+        })
+        .min_by_key(|(_, d)| OrderedFloat(*d));
 }
 
 fn count_bits(b: u8) -> u8 {
@@ -133,7 +118,10 @@ fn count_bits(b: u8) -> u8 {
 }
 
 fn humming_distance(v1: &Vec<u8>, v2: &Vec<u8>) -> usize {
-    return v1.iter().zip(v2.iter()).map(|(&x, &y)| x^y).map(count_bits).fold(0 as usize, |a, b| a + (b as usize));
+    return v1.iter().zip(v2.iter())
+        .map(|(&x, &y)| x^y)
+        .map(count_bits)
+        .fold(0 as usize, |a, b| a + (b as usize));
 }
 
 fn transpose_blocks(v: &Vec<u8>, size: usize) -> Vec<Vec<u8>> {
@@ -146,7 +134,6 @@ fn transpose_blocks(v: &Vec<u8>, size: usize) -> Vec<Vec<u8>> {
 
     return blocks;
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -172,16 +159,19 @@ mod tests {
     #[test]
     fn challenge_1_3() {
         let cipher = hex::decode("1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736").unwrap();
-        let (result, _) = decrypt_xor(&cipher);
-        assert_eq!(result, "Cooking MC's like a pound of bacon");
+        match decrypt_xor(&cipher) {
+            Some((result, _)) => assert_eq!(result, "Cooking MC's like a pound of bacon"),
+            None => assert!(false),
+        }
     }
 
     #[test]
     fn challenge_1_4() {
-        let result = read_file(&"4.txt".to_string())
+        let result = read_file("4.txt")
             .map(|line| decrypt_xor(&hex::decode(line).unwrap()))
-            .filter(|(_, score)| *score >= 0.)
-            .min_by_key(|(_, score)| (10000000. * *score).ceil() as i64)
+            .filter(|s| s.is_some())
+            .map(|s| s.unwrap())
+            .min_by_key(|(_, score)| OrderedFloat(*score))
             .unwrap().0;
         assert_eq!(result, "Now that the party is jumping\n");
     }
@@ -219,7 +209,4 @@ fn relative_humming(v: &Vec<u8>, size: usize) -> usize {
     return humming_distance(&Vec::from(c1), &Vec::from(c2));
 }
 
-fn main() {
-    //challenge_1_4();
-    challenge_1_5();
-}
+fn main() {}
