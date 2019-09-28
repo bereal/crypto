@@ -42,33 +42,6 @@ lazy_static! {
     };
 }
 
-struct BufIter<B> {
-    br: Lines<B>
-}
-
-impl<B: BufRead> Iterator for BufIter<B> {
-    type Item = String;
-
-    fn next(&mut self) -> Option<String> {
-        let v = self.br.next();
-        match v {
-            Some(l) => return Some(l.unwrap()),
-            None => return None,
-        }
-    }
-}
-
-fn read_file(name: &str) -> BufIter<BufReader<File>> {
-    let path = Path::new(name);
-    let file = match File::open(&path) {
-        Err(why) => panic!("couldn't open {}: {}", path.display(), why),
-        Ok(file) => file
-    };
-
-    let buf = BufReader::new(file);
-    return BufIter{br: buf.lines()};
-}
-
 fn xor(v1: &Vec<u8>, v2: &Vec<u8>) -> Vec<u8> {
     return v1.iter().zip(v2.iter().cycle()).map(|(&x, &y)| x^y).collect();
 }
@@ -167,12 +140,18 @@ mod tests {
 
     #[test]
     fn challenge_1_4() {
-        let result = read_file("4.txt")
+        let path = Path::new("4.txt");
+        let file = File::open(&path).unwrap();
+
+        let result = BufReader::new(file)
+            .lines()
+            .map(|s| s.unwrap())
             .map(|line| decrypt_xor(&hex::decode(line).unwrap()))
             .filter(|s| s.is_some())
             .map(|s| s.unwrap())
             .min_by_key(|(_, score)| OrderedFloat(*score))
             .unwrap().0;
+
         assert_eq!(result, "Now that the party is jumping\n");
     }
 
