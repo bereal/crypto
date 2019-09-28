@@ -5,9 +5,8 @@ use base64;
 use maplit;
 use ordered_float::{OrderedFloat};
 use lazy_static::{lazy_static};
-use std::path::{ Path };
 use std::fs::File;
-use std::io::{ BufReader, BufRead, Lines };
+use std::io::{ BufReader, BufRead };
 use std::collections::HashMap;
 
 lazy_static! {
@@ -56,20 +55,21 @@ fn frequencies(s: &String) -> HashMap<char, f64> {
     for v in m.values_mut() {
         *v /= len;
     }
+
     return m;
 }
 
 fn freq_distance(s: &String) -> f64 {
     let freq = frequencies(&s);
 
-    return ENGLISH_FREQ.iter()
+    ENGLISH_FREQ.iter()
         .map(|(&c, &v)| (v - freq.get(&c).unwrap_or(&0.).powf(2.)))
-        .fold(0., |acc, x| acc+x);
+        .fold(0., |acc, x| acc+x)
 }
 
 // Attempt to decrypt a single-byte-xor encrypted message
 fn decrypt_xor(cipher: &Vec<u8>) -> Option<(String, f64)> {
-    return (0..255).map(|k| xor(cipher, &vec![k]))
+    (0..255).map(|k| xor(cipher, &vec![k]))
         .map(String::from_utf8)
         .filter(|s| s.is_ok())
         .map(|s| s.unwrap())
@@ -77,7 +77,15 @@ fn decrypt_xor(cipher: &Vec<u8>) -> Option<(String, f64)> {
             let dist = freq_distance(&s);
             return (s, dist);
         })
-        .min_by_key(|(_, d)| OrderedFloat(*d));
+        .min_by_key(|(_, d)| OrderedFloat(*d))
+}
+
+fn find_and_decrypt_xor<T: Iterator<Item=String>>(it: T) -> Option<String> {
+    it.map(|line| decrypt_xor(&hex::decode(line).unwrap()))
+        .filter(|s| s.is_some())
+        .map(|s| s.unwrap())
+        .min_by_key(|(_, score)| OrderedFloat(*score))
+        .map(|(s, _)| s)
 }
 
 fn count_bits(b: u8) -> u8 {
@@ -91,10 +99,10 @@ fn count_bits(b: u8) -> u8 {
 }
 
 fn humming_distance(v1: &Vec<u8>, v2: &Vec<u8>) -> usize {
-    return v1.iter().zip(v2.iter())
+    v1.iter().zip(v2.iter())
         .map(|(&x, &y)| x^y)
         .map(count_bits)
-        .fold(0 as usize, |a, b| a + (b as usize));
+        .fold(0 as usize, |a, b| a + (b as usize))
 }
 
 fn transpose_blocks(v: &Vec<u8>, size: usize) -> Vec<Vec<u8>> {
@@ -106,6 +114,12 @@ fn transpose_blocks(v: &Vec<u8>, size: usize) -> Vec<Vec<u8>> {
     }
 
     return blocks;
+}
+
+fn read_file(name: &str) -> impl Iterator<Item=String> {
+    BufReader::new(File::open(name).unwrap())
+        .lines()
+        .filter_map(|line| line.ok())
 }
 
 #[cfg(test)]
@@ -140,18 +154,7 @@ mod tests {
 
     #[test]
     fn challenge_1_4() {
-        let path = Path::new("4.txt");
-        let file = File::open(&path).unwrap();
-
-        let result = BufReader::new(file)
-            .lines()
-            .map(|s| s.unwrap())
-            .map(|line| decrypt_xor(&hex::decode(line).unwrap()))
-            .filter(|s| s.is_some())
-            .map(|s| s.unwrap())
-            .min_by_key(|(_, score)| OrderedFloat(*score))
-            .unwrap().0;
-
+        let result = find_and_decrypt_xor(read_file("4.txt")).unwrap();
         assert_eq!(result, "Now that the party is jumping\n");
     }
 
