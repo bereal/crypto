@@ -42,7 +42,7 @@ lazy_static! {
 }
 
 fn xor(v1: &Vec<u8>, v2: &Vec<u8>) -> Vec<u8> {
-    return v1.iter().zip(v2.iter().cycle()).map(|(&x, &y)| x^y).collect();
+    v1.iter().zip(v2.iter().cycle()).map(|(&x, &y)| x^y).collect()
 }
 
 fn frequencies(s: &String) -> HashMap<char, f64> {
@@ -75,33 +75,23 @@ fn decrypt_xor(cipher: &Vec<u8>) -> Option<(String, f64)> {
         .map(|s| s.unwrap())
         .map(|s| {
             let dist = freq_distance(&s);
-            return (s, dist);
+            (s, dist)
         })
         .min_by_key(|(_, d)| OrderedFloat(*d))
 }
 
-fn find_and_decrypt_xor<T: Iterator<Item=String>>(it: T) -> Option<String> {
-    it.map(|line| decrypt_xor(&hex::decode(line).unwrap()))
+fn find_and_decrypt_xor<T: Iterator<Item=String>>(lines: T) -> Option<String> {
+    lines.map(|line| decrypt_xor(&hex::decode(line).unwrap()))
         .filter(|s| s.is_some())
         .map(|s| s.unwrap())
         .min_by_key(|(_, score)| OrderedFloat(*score))
         .map(|(s, _)| s)
 }
 
-fn count_bits(b: u8) -> u8 {
-    let mut n = b;
-    let mut c: u8 = 0;
-    while n > 0 {
-        c += (n & 1) as u8;
-        n >>= 1;
-    }
-    return c;
-}
-
 fn humming_distance(v1: &Vec<u8>, v2: &Vec<u8>) -> usize {
     v1.iter().zip(v2.iter())
         .map(|(&x, &y)| x^y)
-        .map(count_bits)
+        .map(|b| b.count_ones())
         .fold(0 as usize, |a, b| a + (b as usize))
 }
 
