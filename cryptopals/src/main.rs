@@ -9,6 +9,9 @@ use lazy_static::{lazy_static};
 use std::fs::File;
 use std::io::{ BufReader, BufRead };
 use std::collections::HashMap;
+use aes::Aes128;
+use aes::block_cipher_trait::generic_array::GenericArray;
+use aes::block_cipher_trait::BlockCipher;
 
 lazy_static! {
     static ref ENGLISH_FREQ: HashMap<char, f64> = maplit::hashmap! {
@@ -133,6 +136,20 @@ fn coincidence(v: &Vec<u8>, size: usize) -> usize {
     return result;
 }
 
+fn decrypt_aes(cipher: &Vec<u8>, key: &Vec<u8>) -> Vec<u8> {
+    let key_data = GenericArray::from_slice(key);
+    let aes = Aes128::new(key_data);
+    let mut plaintext = Vec::new();
+
+    cipher.chunks(16).for_each(|block| {
+        let mut b = GenericArray::clone_from_slice(block);
+        aes.decrypt_block(&mut b);
+        let mut vec = b.to_vec();
+        plaintext.append(&mut vec);
+    });
+    return plaintext;
+}
+
 fn read_file_lines(name: &str) -> impl Iterator<Item=String> {
     BufReader::new(File::open(name).unwrap())
         .lines()
@@ -198,6 +215,13 @@ I go crazy when I hear a cymbal".bytes().collect();
 
         let solution = decrypt_vigenere(&data, key_length);
         assert!(solution.unwrap().starts_with("I'm back and I'm ringin'"));
+    }
+
+    #[test]
+    fn challenge_1_7() {
+        let data = read_file_base64("7.txt");
+        let message = decrypt_aes(&data, &Vec::from("YELLOW SUBMARINE"));
+        assert!(String::from_utf8(message).unwrap().starts_with("I'm back and I'm ringin'"));
     }
 
     #[test]
