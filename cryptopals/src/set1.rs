@@ -3,7 +3,9 @@ use lazy_static::{lazy_static};
 use ordered_float::{OrderedFloat};
 use maplit;
 
-use crate::util::crypto;
+use crate::crypto;
+use crate::crypto::metrics;
+use crate::crypto::block::{ECBMode, CipherMode};
 
 lazy_static! {
     static ref ENGLISH_FREQ: HashMap<char, f64> = maplit::hashmap! {
@@ -92,7 +94,7 @@ fn transpose_blocks(v: &Vec<u8>, size: usize) -> Vec<Vec<u8>> {
 }
 
 fn guess_key_length(v: &Vec<u8>) -> usize {
-    (2..40).min_by_key(|i| crypto::coincidence(v, *i)).unwrap()
+    (2..40).min_by_key(|i| metrics::coincidence(v, *i)).unwrap()
 }
 
 pub fn decrypt_vigenere(cipher: &Vec<u8>, key_size: usize) -> Option<String> {
@@ -105,11 +107,11 @@ pub fn decrypt_vigenere(cipher: &Vec<u8>, key_size: usize) -> Option<String> {
 mod tests {
     use hex::FromHex;
     use crate::util::io;
-    use crate::util::crypto;
     use super::*;
+    use crate::crypto::{xor};
 
     #[test]
-    fn challenge_1_1() {
+    fn challenge_1() {
         let input = "49276d206b696c6c696e6720796f757220627261696e206c696b65206120706f69736f6e6f7573206d757368726f6f6d";
         let expected = "SSdtIGtpbGxpbmcgeW91ciBicmFpbiBsaWtlIGEgcG9pc29ub3VzIG11c2hyb29t";
         let bytes = Vec::from_hex(input).unwrap();
@@ -117,18 +119,16 @@ mod tests {
     }
 
     #[test]
-    fn challenge_1_2() {
-        use crate::util::crypto;
-
+    fn challenge_2() {
         let a = Vec::from_hex("1c0111001f010100061a024b53535009181c").unwrap();
         let b = Vec::from_hex("686974207468652062756c6c277320657965").unwrap();
-        let c = crypto::xor(&a, &b);
+        let c = xor(&a, &b);
         let expected = "746865206b696420646f6e277420706c6179";
         assert_eq!(expected, hex::encode(&c));
     }
 
     #[test]
-    fn challenge_1_3() {
+    fn challenge_3() {
         let cipher = hex::decode("1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736").unwrap();
         match crack_xor(&cipher) {
             Some(sol) => assert_eq!(sol.message, "Cooking MC's like a pound of bacon"),
@@ -137,17 +137,17 @@ mod tests {
     }
 
     #[test]
-    fn challenge_1_4() {
+    fn challenge_4() {
         let solution = find_and_crack_xor(io::read_file_lines("4.txt")).unwrap();
         assert_eq!(solution.message, "Now that the party is jumping\n");
     }
 
     #[test]
-    fn challenge_1_5() {
+    fn challenge_5() {
         let plain: Vec<u8> = "Burning 'em, if you ain't quick and nimble
 I go crazy when I hear a cymbal".bytes().collect();
         let key: Vec<u8> = "ICE".bytes().collect();
-        let cipher = crypto::xor(&plain, &key);
+        let cipher = xor(&plain, &key);
         assert_eq!(hex::encode(cipher),
             "0b3637272a2b2e63622c2e69692a23693a2a3c6324202d623d63343c2a26226324272765272a282b2f20430a652e2c652a3124333a653e2b2027630c692b20283165286326302e27282f");
     }
@@ -161,7 +161,7 @@ I go crazy when I hear a cymbal".bytes().collect();
     }
 
     #[test]
-    fn challenge_1_6() {
+    fn challenge_6() {
         let data = io::read_file_base64("6.txt");
         let key_length = guess_key_length(&data);
         assert_eq!(key_length, 29);
@@ -171,11 +171,10 @@ I go crazy when I hear a cymbal".bytes().collect();
     }
 
     #[test]
-    fn challenge_1_7() {
-        let data = io::read_file_base64("7.txt");
-        let message = crypto::decrypt_aes(&data, &Vec::from("YELLOW SUBMARINE"));
-        assert!(String::from_utf8(message).unwrap().starts_with("I'm back and I'm ringin'"));
+    fn challenge_7() {
+        let mut data = io::read_file_base64("7.txt");
+        let mut ecb = ECBMode::<aes::Aes128>::new(b"YELLOW SUBMARINE");
+        ecb.decrypt(&mut data);
+        assert!(String::from_utf8(data).unwrap().starts_with("I'm back and I'm ringin'"));
     }
-
-
 }
